@@ -3,8 +3,10 @@ package handlers
 import (
 	"encoding/json"
 	"errors"
+	"fmt"
 	"net/http"
 	"strconv"
+	"time"
 
 	"github.com/gorilla/mux"
 
@@ -98,7 +100,13 @@ func (h *TaskHandler) Delete(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *TaskHandler) List(w http.ResponseWriter, r *http.Request) {
-	tasks, err := h.usecase.List(r.Context())
+	filter, err := parseTaskListFilter(r)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, err)
+		return
+	}
+
+	tasks, err := h.usecase.List(r.Context(), filter)
 	if err != nil {
 		writeUsecaseError(w, err)
 		return
@@ -110,6 +118,37 @@ func (h *TaskHandler) List(w http.ResponseWriter, r *http.Request) {
 	}
 
 	writeJSON(w, http.StatusOK, response)
+}
+
+func parseTaskListFilter(r *http.Request) (taskusecase.ListFilter, error) {
+	query := r.URL.Query()
+	filter := taskusecase.ListFilter{}
+
+	if raw := query.Get("planned_for_from"); raw != "" {
+		parsed, err := time.Parse(time.DateOnly, raw)
+		if err != nil {
+			return taskusecase.ListFilter{}, fmt.Errorf("invalid planned_for_from")
+		}
+		filter.PlannedForFrom = &parsed
+	}
+
+	if raw := query.Get("planned_for_to"); raw != "" {
+		parsed, err := time.Parse(time.DateOnly, raw)
+		if err != nil {
+			return taskusecase.ListFilter{}, fmt.Errorf("invalid planned_for_to")
+		}
+		filter.PlannedForTo = &parsed
+	}
+
+	if raw := query.Get("schedule_id"); raw != "" {
+		scheduleID, err := strconv.ParseInt(raw, 10, 64)
+		if err != nil || scheduleID <= 0 {
+			return taskusecase.ListFilter{}, fmt.Errorf("invalid schedule_id")
+		}
+		filter.ScheduleID = &scheduleID
+	}
+
+	return filter, nil
 }
 
 func getIDFromRequest(r *http.Request) (int64, error) {

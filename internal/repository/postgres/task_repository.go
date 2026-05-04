@@ -2,12 +2,16 @@ package postgres
 
 import (
 	"context"
+	"database/sql"
 	"errors"
+	"fmt"
+	"strings"
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	taskdomain "example.com/taskservice/internal/domain/task"
+	taskusecase "example.com/taskservice/internal/usecase/task"
 )
 
 type Repository struct {
@@ -22,7 +26,7 @@ func (r *Repository) Create(ctx context.Context, task *taskdomain.Task) (*taskdo
 	const query = `
 		INSERT INTO tasks (title, description, status, created_at, updated_at)
 		VALUES ($1, $2, $3, $4, $5)
-		RETURNING id, title, description, status, created_at, updated_at
+		RETURNING id, title, description, status, schedule_id, planned_for, created_at, updated_at
 	`
 
 	row := r.pool.QueryRow(ctx, query, task.Title, task.Description, task.Status, task.CreatedAt, task.UpdatedAt)
@@ -36,7 +40,7 @@ func (r *Repository) Create(ctx context.Context, task *taskdomain.Task) (*taskdo
 
 func (r *Repository) GetByID(ctx context.Context, id int64) (*taskdomain.Task, error) {
 	const query = `
-		SELECT id, title, description, status, created_at, updated_at
+		SELECT id, title, description, status, schedule_id, planned_for, created_at, updated_at
 		FROM tasks
 		WHERE id = $1
 	`
@@ -62,7 +66,7 @@ func (r *Repository) Update(ctx context.Context, task *taskdomain.Task) (*taskdo
 			status = $3,
 			updated_at = $4
 		WHERE id = $5
-		RETURNING id, title, description, status, created_at, updated_at
+		RETURNING id, title, description, status, schedule_id, planned_for, created_at, updated_at
 	`
 
 	row := r.pool.QueryRow(ctx, query, task.Title, task.Description, task.Status, task.UpdatedAt, task.ID)
@@ -93,14 +97,34 @@ func (r *Repository) Delete(ctx context.Context, id int64) error {
 	return nil
 }
 
-func (r *Repository) List(ctx context.Context) ([]taskdomain.Task, error) {
-	const query = `
-		SELECT id, title, description, status, created_at, updated_at
+func (r *Repository) List(ctx context.Context, filter taskusecase.ListFilter) ([]taskdomain.Task, error) {
+	query := `
+		SELECT id, title, description, status, schedule_id, planned_for, created_at, updated_at
 		FROM tasks
-		ORDER BY id DESC
 	`
 
-	rows, err := r.pool.Query(ctx, query)
+	args := make([]any, 0, 3)
+	conditions := make([]string, 0, 3)
+
+	if filter.PlannedForFrom != nil {
+		args = append(args, *filter.PlannedForFrom)
+		conditions = append(conditions, fmt.Sprintf("planned_for >= $%d", len(args)))
+	}
+	if filter.PlannedForTo != nil {
+		args = append(args, *filter.PlannedForTo)
+		conditions = append(conditions, fmt.Sprintf("planned_for <= $%d", len(args)))
+	}
+	if filter.ScheduleID != nil {
+		args = append(args, *filter.ScheduleID)
+		conditions = append(conditions, fmt.Sprintf("schedule_id = $%d", len(args)))
+	}
+
+	if len(conditions) > 0 {
+		query += "\nWHERE " + strings.Join(conditions, " AND ")
+	}
+	query += "\nORDER BY id DESC"
+
+	rows, err := r.pool.Query(ctx, query, args...)
 	if err != nil {
 		return nil, err
 	}
@@ -129,8 +153,10 @@ type taskScanner interface {
 
 func scanTask(scanner taskScanner) (*taskdomain.Task, error) {
 	var (
-		task   taskdomain.Task
-		status string
+		task       taskdomain.Task
+		status     string
+		scheduleID sql.NullInt64
+		plannedFor sql.NullTime
 	)
 
 	if err := scanner.Scan(
@@ -138,6 +164,8 @@ func scanTask(scanner taskScanner) (*taskdomain.Task, error) {
 		&task.Title,
 		&task.Description,
 		&status,
+		&scheduleID,
+		&plannedFor,
 		&task.CreatedAt,
 		&task.UpdatedAt,
 	); err != nil {
@@ -145,6 +173,14 @@ func scanTask(scanner taskScanner) (*taskdomain.Task, error) {
 	}
 
 	task.Status = taskdomain.Status(status)
+	if scheduleID.Valid {
+		value := scheduleID.Int64
+		task.ScheduleID = &value
+	}
+	if plannedFor.Valid {
+		value := plannedFor.Time.UTC()
+		task.PlannedFor = &value
+	}
 
 	return &task, nil
 }

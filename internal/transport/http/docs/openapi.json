@@ -21,6 +21,29 @@
       "get": {
         "tags": ["Tasks"],
         "summary": "List tasks",
+        "parameters": [
+          {
+            "name": "planned_for_from",
+            "in": "query",
+            "required": false,
+            "schema": { "type": "string", "format": "date" },
+            "description": "Include tasks with planned_for on or after this date."
+          },
+          {
+            "name": "planned_for_to",
+            "in": "query",
+            "required": false,
+            "schema": { "type": "string", "format": "date" },
+            "description": "Include tasks with planned_for on or before this date."
+          },
+          {
+            "name": "schedule_id",
+            "in": "query",
+            "required": false,
+            "schema": { "type": "integer", "format": "int64", "minimum": 1 },
+            "description": "Include tasks materialized from this schedule id."
+          }
+        ],
         "responses": {
           "200": {
             "description": "Task list",
@@ -204,6 +227,18 @@
             "type": "string",
             "enum": ["new", "in_progress", "done"],
             "example": "new"
+          },
+          "schedule_id": {
+            "type": "integer",
+            "format": "int64",
+            "nullable": true,
+            "example": 10
+          },
+          "planned_for": {
+            "type": "string",
+            "format": "date",
+            "nullable": true,
+            "example": "2026-05-15"
           },
           "created_at": {
             "type": "string",

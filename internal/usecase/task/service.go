@@ -86,8 +86,13 @@ func (s *Service) Delete(ctx context.Context, id int64) error {
 	return s.repo.Delete(ctx, id)
 }
 
-func (s *Service) List(ctx context.Context) ([]taskdomain.Task, error) {
-	return s.repo.List(ctx)
+func (s *Service) List(ctx context.Context, filter ListFilter) ([]taskdomain.Task, error) {
+	normalized, err := validateListFilter(filter)
+	if err != nil {
+		return nil, err
+	}
+
+	return s.repo.List(ctx, normalized)
 }
 
 func validateCreateInput(input CreateInput) (CreateInput, error) {
@@ -122,4 +127,30 @@ func validateUpdateInput(input UpdateInput) (UpdateInput, error) {
 	}
 
 	return input, nil
+}
+
+func validateListFilter(filter ListFilter) (ListFilter, error) {
+	if filter.ScheduleID != nil && *filter.ScheduleID <= 0 {
+		return ListFilter{}, fmt.Errorf("%w: schedule_id must be positive", ErrInvalidInput)
+	}
+
+	if filter.PlannedForFrom != nil {
+		normalized := normalizeDateOnlyUTC(*filter.PlannedForFrom)
+		filter.PlannedForFrom = &normalized
+	}
+	if filter.PlannedForTo != nil {
+		normalized := normalizeDateOnlyUTC(*filter.PlannedForTo)
+		filter.PlannedForTo = &normalized
+	}
+
+	if filter.PlannedForFrom != nil && filter.PlannedForTo != nil && filter.PlannedForTo.Before(*filter.PlannedForFrom) {
+		return ListFilter{}, fmt.Errorf("%w: planned_for_to must be greater than or equal to planned_for_from", ErrInvalidInput)
+	}
+
+	return filter, nil
+}
+
+func normalizeDateOnlyUTC(value time.Time) time.Time {
+	utc := value.UTC()
+	return time.Date(utc.Year(), utc.Month(), utc.Day(), 0, 0, 0, 0, time.UTC)
 }
