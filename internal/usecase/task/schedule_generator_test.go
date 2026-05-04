@@ -199,3 +199,14 @@ func TestComputePlannedDates_SpecificDatesWithinWindowOnly(t *testing.T) {
 		t.Fatalf("unexpected dates: got=%v want=%v", got, want)
 	}
 }
+
+func TestMinDateAndMaxDate(t *testing.T) {
+	a := time.Date(2026, time.May, 1, 0, 0, 0, 0, time.UTC)
+	b := time.Date(2026, time.May, 2, 0, 0, 0, 0, time.UTC)
+	if !minDate(a, b).Equal(a) {
+		t.Fatalf("unexpected minDate result")
+	}
+	if !maxDate(a, b).Equal(b) {
+		t.Fatalf("unexpected maxDate result")
+	}
+}

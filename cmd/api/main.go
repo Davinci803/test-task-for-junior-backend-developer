@@ -97,7 +97,7 @@ func loadConfig() config {
 		),
 	}
 
-	if cfg.DatabaseDSN == "" {
+	if strings.TrimSpace(cfg.DatabaseDSN) == "" {
 		panic(fmt.Errorf("DATABASE_DSN is required"))
 	}
 

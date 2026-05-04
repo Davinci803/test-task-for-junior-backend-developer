@@ -12,7 +12,7 @@ import (
 )
 
 type ScheduleRepository struct {
-	pool *pgxpool.Pool
+	pool scheduleDB
 }
 
 func NewScheduleRepository(pool *pgxpool.Pool) *ScheduleRepository {

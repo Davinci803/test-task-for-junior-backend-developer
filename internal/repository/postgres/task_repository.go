@@ -15,7 +15,7 @@ import (
 )
 
 type Repository struct {
-	pool *pgxpool.Pool
+	pool taskDB
 }
 
 func New(pool *pgxpool.Pool) *Repository {
