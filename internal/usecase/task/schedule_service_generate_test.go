@@ -3,6 +3,7 @@ package task
 import (
 	"context"
 	"fmt"
+	"sync"
 	"testing"
 	"time"
 
@@ -48,6 +49,62 @@ func TestScheduleServiceGenerateTasks_IdempotentAcrossRuns(t *testing.T) {
 	}
 }
 
+func TestScheduleServiceGenerateTasks_IdempotentWithConcurrentRuns(t *testing.T) {
+	schedule := taskdomain.Schedule{
+		ID:             8,
+		BaseTitle:      "Daily concurrent",
+		StatusTemplate: taskdomain.StatusNew,
+		Type:           taskdomain.ScheduleTypeDaily,
+		Payload: taskdomain.SchedulePayload{
+			Daily: &taskdomain.DailySchedule{Interval: 1},
+		},
+		StartDate: time.Date(2026, time.May, 1, 0, 0, 0, 0, time.UTC),
+		IsActive:  true,
+	}
+
+	scheduleRepo := &fakeScheduleRepository{
+		activeSchedules: []taskdomain.Schedule{schedule},
+	}
+	materializeRepo := newDedupMaterializationRepository()
+	service := NewScheduleService(scheduleRepo, materializeRepo)
+
+	from := time.Date(2026, time.May, 5, 0, 0, 0, 0, time.UTC)
+	to := time.Date(2026, time.May, 7, 0, 0, 0, 0, time.UTC)
+
+	const workers = 4
+	results := make(chan int, workers)
+	errs := make(chan error, workers)
+
+	var wg sync.WaitGroup
+	for i := 0; i < workers; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			created, err := service.GenerateTasks(context.Background(), from, to)
+			if err != nil {
+				errs <- err
+				return
+			}
+			results <- created
+		}()
+	}
+	wg.Wait()
+	close(results)
+	close(errs)
+
+	for err := range errs {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	totalCreated := 0
+	for created := range results {
+		totalCreated += created
+	}
+	if totalCreated != 3 {
+		t.Fatalf("concurrent runs should materialize unique tasks once: got=%d want=3", totalCreated)
+	}
+}
+
 type fakeScheduleRepository struct {
 	activeSchedules []taskdomain.Schedule
 }
@@ -79,6 +136,7 @@ func (f *fakeScheduleRepository) ListActiveInRange(context.Context, time.Time, t
 }
 
 type dedupMaterializationRepository struct {
+	mu   sync.Mutex
 	seen map[string]struct{}
 }
 
@@ -89,6 +147,9 @@ func newDedupMaterializationRepository() *dedupMaterializationRepository {
 }
 
 func (r *dedupMaterializationRepository) CreateBatch(_ context.Context, tasks []MaterializedTaskInput) (int, error) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
 	created := 0
 	for _, task := range tasks {
 		key := fmt.Sprintf("%d:%s", task.ScheduleID, task.PlannedFor.UTC().Format(time.DateOnly))

@@ -61,6 +61,32 @@ func TestScheduleValidate_OddEvenMode(t *testing.T) {
 	}
 }
 
+func TestScheduleValidate_SpecificDatesMustNotBeEmpty(t *testing.T) {
+	schedule := validBaseSchedule()
+	schedule.Type = ScheduleTypeSpecificDates
+	schedule.Payload = SchedulePayload{
+		SpecificDates: &SpecificDatesSchedule{Dates: []time.Time{}},
+	}
+
+	err := schedule.Validate()
+	if !errors.Is(err, ErrInvalidSchedule) {
+		t.Fatalf("expected ErrInvalidSchedule, got: %v", err)
+	}
+}
+
+func TestScheduleValidate_PayloadMustMatchType(t *testing.T) {
+	schedule := validBaseSchedule()
+	schedule.Type = ScheduleTypeDaily
+	schedule.Payload = SchedulePayload{
+		MonthlyDay: &MonthlyDaySchedule{Day: 15},
+	}
+
+	err := schedule.Validate()
+	if !errors.Is(err, ErrInvalidSchedule) {
+		t.Fatalf("expected ErrInvalidSchedule, got: %v", err)
+	}
+}
+
 func TestScheduleValidate_EndDateBeforeStartDate(t *testing.T) {
 	schedule := validBaseSchedule()
 	end := schedule.StartDate.AddDate(0, 0, -1)

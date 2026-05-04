@@ -131,3 +131,71 @@ func TestComputePlannedDates_MonthlyDaySkipsNonLeapFebruary(t *testing.T) {
 		t.Fatalf("unexpected dates: got=%v want=%v", got, want)
 	}
 }
+
+func TestComputePlannedDates_OddEvenDays(t *testing.T) {
+	schedule := taskdomain.Schedule{
+		BaseTitle:      "Odd days",
+		StatusTemplate: taskdomain.StatusNew,
+		Type:           taskdomain.ScheduleTypeOddEvenDays,
+		Payload: taskdomain.SchedulePayload{
+			OddEvenDays: &taskdomain.OddEvenDaysSchedule{Mode: taskdomain.OddEvenModeOdd},
+		},
+		StartDate: time.Date(2026, time.May, 1, 0, 0, 0, 0, time.UTC),
+		IsActive:  true,
+	}
+
+	got, err := computePlannedDates(
+		schedule,
+		time.Date(2026, time.May, 1, 0, 0, 0, 0, time.UTC),
+		time.Date(2026, time.May, 6, 0, 0, 0, 0, time.UTC),
+	)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	want := []time.Time{
+		time.Date(2026, time.May, 1, 0, 0, 0, 0, time.UTC),
+		time.Date(2026, time.May, 3, 0, 0, 0, 0, time.UTC),
+		time.Date(2026, time.May, 5, 0, 0, 0, 0, time.UTC),
+	}
+
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("unexpected dates: got=%v want=%v", got, want)
+	}
+}
+
+func TestComputePlannedDates_SpecificDatesWithinWindowOnly(t *testing.T) {
+	schedule := taskdomain.Schedule{
+		BaseTitle:      "Specific dates",
+		StatusTemplate: taskdomain.StatusNew,
+		Type:           taskdomain.ScheduleTypeSpecificDates,
+		Payload: taskdomain.SchedulePayload{
+			SpecificDates: &taskdomain.SpecificDatesSchedule{
+				Dates: []time.Time{
+					time.Date(2026, time.May, 1, 0, 0, 0, 0, time.UTC),
+					time.Date(2026, time.May, 15, 0, 0, 0, 0, time.UTC),
+					time.Date(2026, time.June, 1, 0, 0, 0, 0, time.UTC),
+				},
+			},
+		},
+		StartDate: time.Date(2026, time.May, 1, 0, 0, 0, 0, time.UTC),
+		IsActive:  true,
+	}
+
+	got, err := computePlannedDates(
+		schedule,
+		time.Date(2026, time.May, 10, 0, 0, 0, 0, time.UTC),
+		time.Date(2026, time.May, 31, 0, 0, 0, 0, time.UTC),
+	)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	want := []time.Time{
+		time.Date(2026, time.May, 15, 0, 0, 0, 0, time.UTC),
+	}
+
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("unexpected dates: got=%v want=%v", got, want)
+	}
+}
