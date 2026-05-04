@@ -7,6 +7,8 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"strconv"
+	"strings"
 	"syscall"
 	"time"
 
@@ -50,6 +52,10 @@ func main() {
 		ReadHeaderTimeout: 5 * time.Second,
 	}
 
+	if cfg.ScheduleGeneratorEnabled {
+		go runScheduleGenerator(ctx, logger, scheduleUsecase, cfg)
+	}
+
 	go func() {
 		<-ctx.Done()
 
@@ -70,14 +76,25 @@ func main() {
 }
 
 type config struct {
-	HTTPAddr    string
-	DatabaseDSN string
+	HTTPAddr                    string
+	DatabaseDSN                 string
+	ScheduleGeneratorEnabled    bool
+	ScheduleGeneratorInterval   time.Duration
+	ScheduleGeneratorTimeout    time.Duration
+	ScheduleGeneratorWindowDays int
 }
 
 func loadConfig() config {
 	cfg := config{
-		HTTPAddr:    envOrDefault("HTTP_ADDR", ":8080"),
-		DatabaseDSN: envOrDefault("DATABASE_DSN", "postgres://postgres:postgres@localhost:5432/taskservice?sslmode=disable"),
+		HTTPAddr:                  envOrDefault("HTTP_ADDR", ":8080"),
+		DatabaseDSN:               envOrDefault("DATABASE_DSN", "postgres://postgres:postgres@localhost:5432/taskservice?sslmode=disable"),
+		ScheduleGeneratorEnabled:  mustParseBool("SCHEDULE_GENERATOR_ENABLED", envOrDefault("SCHEDULE_GENERATOR_ENABLED", "true")),
+		ScheduleGeneratorInterval: mustParseDuration("SCHEDULE_GENERATOR_INTERVAL", envOrDefault("SCHEDULE_GENERATOR_INTERVAL", "1h")),
+		ScheduleGeneratorTimeout:  mustParseDuration("SCHEDULE_GENERATOR_TIMEOUT", envOrDefault("SCHEDULE_GENERATOR_TIMEOUT", "15s")),
+		ScheduleGeneratorWindowDays: mustParsePositiveInt(
+			"SCHEDULE_GENERATOR_WINDOW_DAYS",
+			envOrDefault("SCHEDULE_GENERATOR_WINDOW_DAYS", "30"),
+		),
 	}
 
 	if cfg.DatabaseDSN == "" {
@@ -93,4 +110,81 @@ func envOrDefault(key, fallback string) string {
 	}
 
 	return fallback
+}
+
+func runScheduleGenerator(ctx context.Context, logger *slog.Logger, usecase task.ScheduleUsecase, cfg config) {
+	run := func(trigger string) {
+		from, to := generatorWindow(time.Now().UTC(), cfg.ScheduleGeneratorWindowDays)
+
+		cycleCtx, cancel := context.WithTimeout(ctx, cfg.ScheduleGeneratorTimeout)
+		defer cancel()
+
+		created, err := usecase.GenerateTasks(cycleCtx, from, to)
+		if err != nil {
+			logger.Error("schedule generator cycle failed",
+				"trigger", trigger,
+				"from", from.Format(time.DateOnly),
+				"to", to.Format(time.DateOnly),
+				"error", err,
+			)
+			return
+		}
+
+		logger.Info("schedule generator cycle completed",
+			"trigger", trigger,
+			"from", from.Format(time.DateOnly),
+			"to", to.Format(time.DateOnly),
+			"created_tasks", created,
+		)
+	}
+
+	run("startup")
+
+	ticker := time.NewTicker(cfg.ScheduleGeneratorInterval)
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-ctx.Done():
+			logger.Info("schedule generator stopped")
+			return
+		case <-ticker.C:
+			run("ticker")
+		}
+	}
+}
+
+func generatorWindow(now time.Time, windowDays int) (time.Time, time.Time) {
+	utc := now.UTC()
+	from := time.Date(utc.Year(), utc.Month(), utc.Day(), 0, 0, 0, 0, time.UTC)
+	to := from.AddDate(0, 0, windowDays)
+	return from, to
+}
+
+func mustParseDuration(name, value string) time.Duration {
+	duration, err := time.ParseDuration(value)
+	if err != nil || duration <= 0 {
+		panic(fmt.Errorf("%s must be a positive duration", name))
+	}
+	return duration
+}
+
+func mustParsePositiveInt(name, value string) int {
+	number, err := strconv.Atoi(value)
+	if err != nil || number <= 0 {
+		panic(fmt.Errorf("%s must be a positive integer", name))
+	}
+	return number
+}
+
+func mustParseBool(name, value string) bool {
+	normalized := strings.TrimSpace(strings.ToLower(value))
+	switch normalized {
+	case "1", "true", "yes", "y", "on":
+		return true
+	case "0", "false", "no", "n", "off":
+		return false
+	default:
+		panic(fmt.Errorf("%s must be a boolean", name))
+	}
 }
