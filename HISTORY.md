@@ -1,4 +1,4 @@
-# [HISTORY.md](http://HISTORY.md)
+# HISTORY.md
 
 ## чат с LLM, вопросы и ответы
 
