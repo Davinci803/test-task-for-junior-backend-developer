@@ -174,7 +174,7 @@ func buildScheduleFromCreateInput(input CreateScheduleInput) (*taskdomain.Schedu
 		Payload:         input.Payload,
 		StartDate:       input.StartDate,
 		EndDate:         input.EndDate,
-		IsActive:        true,
+		IsActive:        input.IsActive,
 	}
 
 	if err := model.Validate(); err != nil {

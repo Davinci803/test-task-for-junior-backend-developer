@@ -145,8 +145,14 @@ func writeUsecaseError(w http.ResponseWriter, err error) {
 	switch {
 	case errors.Is(err, taskdomain.ErrNotFound):
 		writeError(w, http.StatusNotFound, err)
+	case errors.Is(err, taskdomain.ErrScheduleNotFound):
+		writeError(w, http.StatusNotFound, err)
 	case errors.Is(err, taskusecase.ErrInvalidInput):
 		writeError(w, http.StatusBadRequest, err)
+	case errors.Is(err, taskusecase.ErrInvalidSchedule):
+		writeError(w, http.StatusBadRequest, err)
+	case errors.Is(err, taskusecase.ErrScheduleNotFound):
+		writeError(w, http.StatusNotFound, err)
 	default:
 		writeError(w, http.StatusInternalServerError, err)
 	}
